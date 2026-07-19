@@ -210,7 +210,7 @@
     }
 
     .grid {
-      --drain: .3;
+      --drain: 0;
       width: 100%;
       display: grid;
       gap: clamp(8px, 2.4vw, 14px);
@@ -262,16 +262,28 @@
       animation: urgency .48s ease-in-out infinite alternate;
     }
 
-    .tile.target::before {
+    .tile.target::before,
+    .tile.red::before {
       content: "";
       position: absolute;
       z-index: 3;
       inset: 7%;
-      border: clamp(3px, .8vw, 5px) solid var(--gold);
+      border-width: clamp(3px, .8vw, 5px);
+      border-style: solid;
       border-radius: 50%;
-      box-shadow: 0 0 15px rgba(255, 200, 74, .8), inset 0 0 12px rgba(255, 200, 74, .32);
       animation: ringPulse .78s ease-in-out infinite alternate;
       pointer-events: none;
+    }
+
+    .tile.target::before {
+      border-color: var(--gold);
+      box-shadow: 0 0 15px rgba(255, 200, 74, .8), inset 0 0 12px rgba(255, 200, 74, .32);
+    }
+
+    .tile.red::before {
+      border-color: var(--red);
+      border-style: dashed;
+      box-shadow: 0 0 14px rgba(255, 85, 113, .72), inset 0 0 11px rgba(255, 85, 113, .28);
     }
 
     .tile.resolved { pointer-events: none; animation: resolve .18s ease forwards; }
@@ -412,7 +424,8 @@
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
-      .tile.target::before { opacity: 1; transform: none; }
+      .tile.target::before,
+      .tile.red::before { opacity: 1; transform: none; }
       .grid.shade-danger .tile-shade { opacity: .65; }
     }
   </style>
@@ -423,7 +436,7 @@
       <div class="brand"><span class="brand-dot"></span> Reflex protocol</div>
       <div class="hero-mark" aria-hidden="true" id="heroFace"></div>
       <h1 id="gameTitle">GRID<br><span>RUSH</span></h1>
-      <p class="tagline">Find the ringed faces. Dodge the Reds. Beat the clock.</p>
+      <p class="tagline">Tap solid gold rings. Dashed red rings end the run. Leave ringless faces.</p>
       <div class="menu-actions">
         <button class="primary" id="playButton">Start run</button>
         <button class="secondary" id="soundButton">Sound on</button>
@@ -470,11 +483,11 @@
     'use strict';
 
     const ECON = {
-      startBankMs: 7000,
-      capMs: 10000,
-      refundMs: n => Math.max(300, 550 - 15 * n),
-      waveClearBonusMs: n => Math.max(400, 1500 - 100 * n),
-      neutralPenaltyMs: 600
+      startBankMs: 6000,
+      capMs: 9000,
+      refundMs: n => Math.max(250, 500 - 20 * n),
+      waveClearBonusMs: n => Math.max(350, 1200 - 100 * n),
+      neutralPenaltyMs: 700
     };
     const RUN_HEARTS = 1;
     const SAVE_KEY = 'gridrush.v0';
@@ -514,7 +527,8 @@
     const state = {
       phase: 'BOOT', wave: 1, config: null, runSeed: 0, waveSeed: 0, tiles: [],
       remainingTargets: 0, runHearts: RUN_HEARTS, bankMs: ECON.startBankMs,
-      remaining: ECON.startBankMs, lastTick: 0, rafId: null, runElapsedMs: 0,
+      remaining: ECON.startBankMs, waveMaxBankMs: ECON.startBankMs,
+      bankAtWaveEntryMs: ECON.startBankMs, lastTick: 0, rafId: null, runElapsedMs: 0,
       waveElapsedMs: 0, waveTaps: [], waveWrongTaps: 0, waveNeutralTaps: 0,
       waveRedTapsNearDrainCount: 0, streak: 0, shadeTone: 'normal',
       currentRecordId: null, runRecord: null, pauseAfterWave: false
@@ -668,6 +682,8 @@
     function buildWave(n) {
       state.wave = n;
       state.config = waveConfig(n);
+      state.bankAtWaveEntryMs = state.bankMs;
+      state.waveMaxBankMs = Math.max(1, state.bankMs);
       state.waveSeed = (state.runSeed ^ Math.imul(n, 0x9E3779B9)) >>> 0;
       const rng = mulberry32(state.waveSeed);
       const kinds = [
@@ -697,7 +713,7 @@
         const button = document.createElement('button');
         button.className = 'tile ' + tile.kind;
         button.dataset.idx = tile.idx;
-        button.setAttribute('aria-label', tile.kind === 'target' ? 'Ringed target face' : tile.kind === 'red' ? 'Red infected face' : 'Plain bystander face');
+        button.setAttribute('aria-label', tile.kind === 'target' ? 'Solid gold ring target face' : tile.kind === 'red' ? 'Dashed red ring infected face' : 'Ringless bystander face');
         button.innerHTML = faceSvg(tile.kind, tile.faceVariant) + '<span class="tile-shade" aria-hidden="true"></span>';
         button.addEventListener('pointerdown', onTilePress);
         el.grid.append(button);
@@ -710,7 +726,7 @@
       showOverlay({
         icon: '◎',
         title: 'Ready?',
-        text: 'Tap ringed faces · Reds end the run · Good taps add time',
+        text: 'Tap every solid gold ring · Dashed red rings end the run · No ring means leave it',
         actions: []
       });
       let dismissed = false;
@@ -761,12 +777,16 @@
 
     function addBank(amount) {
       state.bankMs = Math.min(ECON.capMs, state.bankMs + amount);
+      if (state.phase === 'PLAYING') {
+        state.waveMaxBankMs = Math.max(state.waveMaxBankMs, state.bankMs);
+      }
       updateHud(state.bankMs);
     }
 
     function updateHud(bank) {
       state.remaining = Math.max(0, bank);
-      const drain = 1 - Math.max(0, Math.min(1, state.remaining / ECON.capMs));
+      const denominator = Math.max(1, state.waveMaxBankMs);
+      const drain = 1 - Math.max(0, Math.min(1, state.remaining / denominator));
       el.grid.style.setProperty('--drain', String(drain));
       const nextTone = state.remaining <= 1800 ? 'danger' : state.remaining <= 3500 ? 'amber' : 'normal';
       if (nextTone !== state.shadeTone) {
@@ -844,6 +864,8 @@
         wrongTaps: state.waveWrongTaps,
         neutralTaps: state.waveNeutralTaps,
         redTapsNearDrainCount: state.waveRedTapsNearDrainCount,
+        waveMaxBankMs: Math.round(state.waveMaxBankMs),
+        bankAtWaveEntryMs: Math.round(state.bankAtWaveEntryMs),
         bankAtClearMs: Math.round(state.bankMs)
       });
       const nextWave = state.wave + 1;
@@ -887,6 +909,8 @@
           wrongTaps: state.waveWrongTaps,
           neutralTaps: state.waveNeutralTaps,
           redTapsNearDrainCount: state.waveRedTapsNearDrainCount,
+          waveMaxBankMs: Math.round(state.waveMaxBankMs),
+          bankAtWaveEntryMs: Math.round(state.bankAtWaveEntryMs),
           bankAtClearMs: null
         });
       }

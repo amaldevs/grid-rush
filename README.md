@@ -1,10 +1,14 @@
 # Grid Rush
 
-Grid Rush is a mobile reflex arcade game. Tap every ringed face, avoid infected red faces, and keep a shared time bank alive for as many waves as possible.
+Grid Rush is a mobile reflex arcade game built around visual discrimination under pressure.
 
-Every run starts at wave 1. Correct taps refund time, wave clears add a larger bonus, and the generated grids become denser as the run progresses. One red tap ends the run.
+Every run starts at wave 1. Each wave begins with fully clear cells, then one synchronized shade descends across every face as the shared time bank drains. Correct taps refund time and wave clears add a bonus.
 
-The time bank is rendered directly on every face as a synchronized shade descending from top to bottom. Targets, neutrals, and Reds all show the same countdown. Correct taps visibly lift the shade across the entire grid.
+The ring rule is deliberately deceptive:
+
+1. Solid gold ring: tap it.
+2. Dashed red ring: avoid it because it ends the run.
+3. No ring: leave it because it costs time.
 
 The game is implemented as one self contained `index.html` with no dependencies, build step, service worker, or network access.
 
@@ -28,7 +32,7 @@ Append `?dev=1` for local run telemetry, or `?seed=1234` to reproduce an entire 
 
 ## Product contracts
 
-The current behaviour follows [the on tile timer specification](docs/grid-rush-on-tile-timer-spec.md), layered over [the arcade run specification](docs/grid-rush-arcade-run-spec.md). The earlier [v0.2 build specification](docs/grid-rush-mvp-build-spec.md) is retained as design history.
+The current behaviour follows [the drain and ring parity specification](docs/grid-rush-drain-ring-parity-spec.md), building on [the on tile timer specification](docs/grid-rush-on-tile-timer-spec.md) and [the arcade run specification](docs/grid-rush-arcade-run-spec.md). The earlier [v0.2 build specification](docs/grid-rush-mvp-build-spec.md) remains as design history.
 
 ## Validation
 
@@ -38,4 +42,4 @@ Run:
 ./scripts/check.sh
 ```
 
-The check validates the inline JavaScript, dependency free single file constraint, synchronized tile countdown, current economy constants, and generated wave invariants through wave 50.
+The check validates the inline JavaScript, dependency free single file constraint, full clear wave entry, running maximum drain normalization, ring parity, aggressive economy, and generated wave invariants through wave 50.

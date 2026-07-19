@@ -176,28 +176,7 @@
 
     .level-label { min-width: 54px; font-weight: 900; }
 
-    .timer-track {
-      height: 13px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, .1);
-      box-shadow: inset 0 2px 5px rgba(0, 0, 0, .25);
-    }
-
-    .timer-fill {
-      width: 100%;
-      height: 100%;
-      border-radius: inherit;
-      background: var(--green);
-      transform: scaleX(.667);
-      transform-origin: left center;
-      will-change: transform;
-    }
-
-    .timer-fill.refill { transition: transform .16s ease-out; }
-
-    .timer-fill.amber { background: var(--gold); }
-    .timer-fill.danger { background: var(--red); animation: urgency .48s ease-in-out infinite alternate; }
+    .hud-spacer { min-width: 1px; }
 
     .icon-button {
       width: 46px;
@@ -231,6 +210,7 @@
     }
 
     .grid {
+      --drain: .3;
       width: 100%;
       display: grid;
       gap: clamp(8px, 2.4vw, 14px);
@@ -248,17 +228,44 @@
       aspect-ratio: 1;
       display: grid;
       place-items: center;
-      overflow: visible;
+      overflow: hidden;
       border-radius: clamp(15px, 4vw, 24px);
       background: linear-gradient(145deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .045));
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 9px 20px rgba(5, 4, 18, .2);
       touch-action: manipulation;
     }
 
-    .tile svg { width: 72%; height: 72%; pointer-events: none; filter: drop-shadow(0 6px 5px rgba(0, 0, 0, .18)); }
+    .tile svg {
+      position: relative;
+      z-index: 1;
+      width: 72%;
+      height: 72%;
+      pointer-events: none;
+      filter: drop-shadow(0 6px 5px rgba(0, 0, 0, .18));
+    }
+
+    .tile-shade {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      border-radius: inherit;
+      background: rgba(13, 12, 30, .65);
+      transform: scaleY(var(--drain));
+      transform-origin: top;
+      pointer-events: none;
+      will-change: transform;
+    }
+
+    .grid.shade-amber .tile-shade { background: rgba(112, 75, 18, .65); }
+    .grid.shade-danger .tile-shade {
+      background: rgba(116, 18, 40, .65);
+      animation: urgency .48s ease-in-out infinite alternate;
+    }
+
     .tile.target::before {
       content: "";
       position: absolute;
+      z-index: 3;
       inset: 7%;
       border: clamp(3px, .8vw, 5px) solid var(--gold);
       border-radius: 50%;
@@ -406,7 +413,7 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
       .tile.target::before { opacity: 1; transform: none; }
-      .timer-fill.danger { opacity: 1; }
+      .grid.shade-danger .tile-shade { opacity: .65; }
     }
   </style>
 </head>
@@ -428,7 +435,7 @@
     <section class="screen game" id="gameScreen" aria-label="Grid Rush game">
       <header class="hud">
         <div class="level-label" id="levelLabel">W1</div>
-        <div class="timer-track" aria-label="Time remaining"><div class="timer-fill" id="timerFill"></div></div>
+        <div class="hud-spacer" aria-hidden="true"></div>
         <button class="icon-button" id="pauseButton" aria-label="Pause">Ⅱ</button>
       </header>
       <div class="meta"><span id="targetCount">3 faces left</span><span>Time bank</span></div>
@@ -461,11 +468,11 @@
     'use strict';
 
     const ECON = {
-      startBankMs: 8000,
-      capMs: 12000,
-      refundMs: n => Math.max(350, 650 - 15 * n),
-      waveClearBonusMs: n => Math.max(500, 2000 - 100 * n),
-      neutralPenaltyMs: 500
+      startBankMs: 7000,
+      capMs: 10000,
+      refundMs: n => Math.max(300, 550 - 15 * n),
+      waveClearBonusMs: n => Math.max(400, 1500 - 100 * n),
+      neutralPenaltyMs: 600
     };
     const RUN_HEARTS = 1;
     const SAVE_KEY = 'gridrush.v0';
@@ -484,7 +491,6 @@
       playButton: document.querySelector('#playButton'), soundButton: document.querySelector('#soundButton'),
       devButton: document.querySelector('#devButton'), bestStat: document.querySelector('#bestStat'),
       runsStat: document.querySelector('#runsStat'), levelLabel: document.querySelector('#levelLabel'),
-      timerFill: document.querySelector('#timerFill'), timerTrack: document.querySelector('.timer-track'),
       targetCount: document.querySelector('#targetCount'), pauseButton: document.querySelector('#pauseButton'),
       grid: document.querySelector('#grid'), waveFlash: document.querySelector('#waveFlash'),
       overlay: document.querySelector('#overlay'), overlayIcon: document.querySelector('#overlayIcon'),
@@ -508,7 +514,8 @@
       remainingTargets: 0, runHearts: RUN_HEARTS, bankMs: ECON.startBankMs,
       remaining: ECON.startBankMs, lastTick: 0, rafId: null, runElapsedMs: 0,
       waveElapsedMs: 0, waveTaps: [], waveWrongTaps: 0, waveNeutralTaps: 0,
-      streak: 0, currentRecordId: null, runRecord: null, pauseAfterWave: false
+      waveRedTapsNearDrainCount: 0, streak: 0, shadeTone: 'normal',
+      currentRecordId: null, runRecord: null, pauseAfterWave: false
     };
 
     function waveConfig(n) {
@@ -590,7 +597,7 @@
         ? '<path d="M21 27l10 4M49 27l-10 4" stroke="#511529" stroke-width="4.5" stroke-linecap="round"/>'
         : '';
       const mouth = kind === 'red'
-        ? '<path d="M26 51c6-7 12-7 18 0" fill="none" stroke="#511529" stroke-width="4" stroke-linecap="round"/>'
+        ? '<path d="M25 62 Q35 55 45 62" fill="none" stroke="#511529" stroke-width="4" stroke-linecap="round"/>'
         : variant % 2 === 0
           ? '<path d="M24 45c5 9 17 9 22 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>'
           : '<path d="M25 46c7 6 13 6 20 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>';
@@ -673,7 +680,9 @@
       state.waveTaps = [];
       state.waveWrongTaps = 0;
       state.waveNeutralTaps = 0;
+      state.waveRedTapsNearDrainCount = 0;
       state.streak = 0;
+      state.shadeTone = 'unset';
       renderGrid();
       updateHud(state.bankMs);
     }
@@ -687,7 +696,7 @@
         button.className = 'tile ' + tile.kind;
         button.dataset.idx = tile.idx;
         button.setAttribute('aria-label', tile.kind === 'target' ? 'Ringed target face' : tile.kind === 'red' ? 'Red infected face' : 'Plain bystander face');
-        button.innerHTML = faceSvg(tile.kind, tile.faceVariant);
+        button.innerHTML = faceSvg(tile.kind, tile.faceVariant) + '<span class="tile-shade" aria-hidden="true"></span>';
         button.addEventListener('pointerdown', onTilePress);
         el.grid.append(button);
       }
@@ -751,16 +760,18 @@
     function addBank(amount) {
       state.bankMs = Math.min(ECON.capMs, state.bankMs + amount);
       updateHud(state.bankMs);
-      el.timerFill.classList.add('refill');
-      setTimeout(() => el.timerFill.classList.remove('refill'), 180);
     }
 
     function updateHud(bank) {
       state.remaining = Math.max(0, bank);
-      const ratio = Math.max(0, Math.min(1, state.remaining / ECON.capMs));
-      el.timerFill.style.transform = 'scaleX(' + ratio + ')';
-      el.timerFill.classList.toggle('amber', state.remaining <= 4000 && state.remaining > 2000);
-      el.timerFill.classList.toggle('danger', state.remaining <= 2000);
+      const drain = 1 - Math.max(0, Math.min(1, state.remaining / ECON.capMs));
+      el.grid.style.setProperty('--drain', String(drain));
+      const nextTone = state.remaining <= 1800 ? 'danger' : state.remaining <= 3500 ? 'amber' : 'normal';
+      if (nextTone !== state.shadeTone) {
+        state.shadeTone = nextTone;
+        el.grid.classList.toggle('shade-amber', nextTone === 'amber');
+        el.grid.classList.toggle('shade-danger', nextTone === 'danger');
+      }
       el.levelLabel.textContent = 'W' + state.wave;
       el.targetCount.textContent = state.remainingTargets + ' ' + (state.remainingTargets === 1 ? 'face' : 'faces') + ' left';
     }
@@ -809,6 +820,7 @@
       }
 
       state.runHearts -= 1;
+      if (state.bankMs < 1800) state.waveRedTapsNearDrainCount += 1;
       node.classList.add('red-hit');
       el.grid.classList.add('shake');
       tone(92, .14, 'sawtooth', .055);
@@ -822,13 +834,14 @@
       el.grid.classList.add('inert');
       const bonus = ECON.waveClearBonusMs(state.wave);
       addBank(bonus);
-      showTimeDelta(el.timerTrack, bonus, true);
+      showTimeDelta(el.targetCount, bonus, true);
       state.runRecord.waves.push({
         n: state.wave,
         clearMs: Math.round(state.waveElapsedMs),
         taps: state.waveTaps,
         wrongTaps: state.waveWrongTaps,
         neutralTaps: state.waveNeutralTaps,
+        redTapsNearDrainCount: state.waveRedTapsNearDrainCount,
         bankAtClearMs: Math.round(state.bankMs)
       });
       const nextWave = state.wave + 1;
@@ -864,6 +877,17 @@
       stopLoop();
       state.phase = 'RUN_OVER';
       el.grid.classList.add('inert', 'failed');
+      if (state.runRecord.waves.at(-1)?.n !== state.wave) {
+        state.runRecord.waves.push({
+          n: state.wave,
+          clearMs: null,
+          taps: state.waveTaps,
+          wrongTaps: state.waveWrongTaps,
+          neutralTaps: state.waveNeutralTaps,
+          redTapsNearDrainCount: state.waveRedTapsNearDrainCount,
+          bankAtClearMs: null
+        });
+      }
       const previousBest = save.bestWave;
       save.bestWave = Math.max(save.bestWave, state.wave);
       save.runsPlayed += 1;

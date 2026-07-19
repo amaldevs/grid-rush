@@ -42,17 +42,25 @@ for (let n = 1; n <= 50; n += 1) {
 }
 
 for (const required of [
-  'startBankMs: 7000',
-  'capMs: 10000',
-  'Math.max(300, 550 - 15 * n)',
-  'Math.max(400, 1500 - 100 * n)',
-  'neutralPenaltyMs: 600'
+  'startBankMs: 6000',
+  'capMs: 9000',
+  'Math.max(250, 500 - 20 * n)',
+  'Math.max(350, 1200 - 100 * n)',
+  'neutralPenaltyMs: 700',
+  'state.waveMaxBankMs = Math.max(1, state.bankMs)',
+  'state.waveMaxBankMs = Math.max(state.waveMaxBankMs, state.bankMs)',
+  'state.remaining / denominator',
+  'waveMaxBankMs: Math.round(state.waveMaxBankMs)',
+  'bankAtWaveEntryMs: Math.round(state.bankAtWaveEntryMs)'
 ]) {
-  if (!script.includes(required)) throw new Error('Missing economy rule: ' + required);
+  if (!script.includes(required)) throw new Error('Missing rule: ' + required);
 }
 
 if (!html.includes('class="tile-shade"')) throw new Error('Tile shade is missing');
-if (!html.includes('transform: scaleY(var(--drain))')) throw new Error('Top to bottom drain rendering is missing');
+if (!html.includes('transform: scaleY(var(--drain))')) throw new Error('Top to bottom drain is missing');
+if (!html.includes('.tile.red::before')) throw new Error('Red ring is missing');
+if (!html.includes('border-style: dashed')) throw new Error('Red ring is not dashed');
+if (!html.includes('.tile.target::before')) throw new Error('Target ring is missing');
 if (!script.includes("el.grid.style.setProperty('--drain', String(drain))")) {
   throw new Error('Grid level synchronized drain write is missing');
 }
@@ -60,7 +68,13 @@ if ((script.match(/style\.setProperty\('--drain'/g) || []).length !== 1) {
   throw new Error('Drain must have exactly one grid level style write path');
 }
 
-console.log('Validated synchronized tile countdown, tougher economy, and waves 1 through 50.');
+for (const bank of [200, 1200, 2000, 6000]) {
+  const waveMax = bank;
+  const drain = 1 - Math.max(0, Math.min(1, bank / waveMax));
+  if (drain !== 0) throw new Error('Wave entry is not fully clear at bank ' + bank);
+}
+
+console.log('Validated full clear waves, synchronized drain, ring parity, aggressive economy, and waves 1 through 50.');
 NODE
 
 rm -f "$TMP"

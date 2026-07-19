@@ -153,23 +153,17 @@
 
     .menu-actions { display: grid; gap: 11px; }
 
-    .level-strip {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      gap: 7px;
-    }
-
-    .level-button {
-      aspect-ratio: 1;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, .07);
+    .run-stats {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 18px;
+      border: 1px solid rgba(255, 255, 255, .09);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, .055);
       color: var(--muted);
       font-weight: 900;
     }
-
-    .level-button.unlocked { background: rgba(81, 229, 211, .13); color: var(--cyan); }
-    .level-button.current { box-shadow: inset 0 0 0 2px var(--cyan); }
-    .level-button:disabled { cursor: default; opacity: .38; }
 
     .game { gap: 12px; }
 
@@ -195,10 +189,12 @@
       height: 100%;
       border-radius: inherit;
       background: var(--green);
-      transform: scaleX(1);
+      transform: scaleX(.667);
       transform-origin: left center;
       will-change: transform;
     }
+
+    .timer-fill.refill { transition: transform .16s ease-out; }
 
     .timer-fill.amber { background: var(--gold); }
     .timer-fill.danger { background: var(--red); animation: urgency .48s ease-in-out infinite alternate; }
@@ -276,14 +272,42 @@
     .tile.red-hit { animation: redHit .18s ease; }
     .grid.shake { animation: shake .15s linear; }
 
-    .penalty {
+    .time-delta {
       position: fixed;
       z-index: 20;
-      color: var(--red);
       font-size: 1.05rem;
       font-weight: 1000;
       pointer-events: none;
-      animation: floatPenalty .55s ease-out forwards;
+      animation: floatPenalty .6s ease-out forwards;
+    }
+
+    .time-delta.positive {
+      color: var(--green);
+      text-shadow: 0 0 16px rgba(84, 222, 160, .7);
+    }
+
+    .time-delta.negative { color: var(--red); }
+
+    .wave-flash {
+      position: absolute;
+      inset: 0;
+      z-index: 9;
+      display: grid;
+      place-items: center;
+      color: var(--ink);
+      font-size: clamp(2.5rem, 14vw, 5rem);
+      font-weight: 1000;
+      letter-spacing: -.06em;
+      opacity: 0;
+      transform: scale(.8);
+      pointer-events: none;
+      text-shadow: 0 12px 32px rgba(5, 4, 18, .7);
+      transition: opacity .12s ease, transform .18s ease;
+    }
+
+    .wave-flash.visible {
+      opacity: 1;
+      transform: scale(1);
     }
 
     .overlay {
@@ -363,6 +387,13 @@
     @keyframes cardIn { from { transform: scale(.9); opacity: 0; } }
     @keyframes stars { from { transform: scale(.45); opacity: 0; } }
 
+    @media (max-width: 400px) {
+      .app {
+        padding-left: max(14px, env(safe-area-inset-left));
+        padding-right: max(14px, env(safe-area-inset-right));
+      }
+    }
+
     @media (max-height: 620px) {
       .app { padding-top: 10px; padding-bottom: 10px; }
       .hero-mark { width: 72px; height: 72px; }
@@ -387,24 +418,24 @@
       <h1 id="gameTitle">GRID<br><span>RUSH</span></h1>
       <p class="tagline">Find the ringed faces. Dodge the Reds. Beat the clock.</p>
       <div class="menu-actions">
-        <button class="primary" id="playButton">Play level 1</button>
+        <button class="primary" id="playButton">Start run</button>
         <button class="secondary" id="soundButton">Sound on</button>
         <button class="secondary" id="devButton" hidden>Development data</button>
       </div>
-      <div class="level-strip" id="levelStrip" aria-label="Level selection"></div>
+      <div class="run-stats" aria-label="Run records"><span id="bestStat">Best: Wave 0</span><span id="runsStat">Runs: 0</span></div>
     </section>
 
     <section class="screen game" id="gameScreen" aria-label="Grid Rush game">
       <header class="hud">
-        <div class="level-label" id="levelLabel">L1</div>
+        <div class="level-label" id="levelLabel">W1</div>
         <div class="timer-track" aria-label="Time remaining"><div class="timer-fill" id="timerFill"></div></div>
         <button class="icon-button" id="pauseButton" aria-label="Pause">Ⅱ</button>
       </header>
-      <div class="meta"><span id="targetCount">2 left</span><span class="hearts" id="heartCount">♥</span></div>
+      <div class="meta"><span id="targetCount">3 faces left</span><span>Time bank</span></div>
       <div class="play-area"><div class="grid inert" id="grid" aria-label="Face grid"></div></div>
     </section>
 
-    <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="overlayTitle">
+    <div class="wave-flash" id="waveFlash" aria-live="polite"></div>\n\n    <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="overlayTitle">
       <div class="card">
         <div class="result-icon" id="overlayIcon" aria-hidden="true"></div>
         <h2 id="overlayTitle"></h2>
@@ -415,7 +446,7 @@
 
     <aside class="dev-panel" id="devPanel" aria-label="Development telemetry">
       <h2>Development data</h2>
-      <p class="dev-note">Stored only in this browser. Unfinished result records become abandoned on the next launch.</p>
+      <p class="dev-note">Stored only in this browser. Each record represents one complete arcade run.</p>
       <pre id="devOutput"></pre>
       <div class="dev-actions">
         <button class="primary" id="copyDevButton">Copy JSON</button>
@@ -429,33 +460,33 @@
   <script>
     'use strict';
 
-    const LEVELS = [
-      { id: 1, cols: 2, rows: 2, targets: 2, reds: 0, neutrals: 2, timeMs: 10000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 2, cols: 3, rows: 2, targets: 3, reds: 1, neutrals: 2, timeMs: 10000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 3, cols: 3, rows: 3, targets: 3, reds: 1, neutrals: 5, timeMs: 9000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 4, cols: 3, rows: 3, targets: 4, reds: 2, neutrals: 3, timeMs: 9000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 5, cols: 3, rows: 4, targets: 4, reds: 2, neutrals: 6, timeMs: 8000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 6, cols: 3, rows: 4, targets: 5, reds: 3, neutrals: 4, timeMs: 8000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 7, cols: 4, rows: 4, targets: 5, reds: 3, neutrals: 8, timeMs: 8000, hearts: 1, neutralPenaltyMs: 500, seed: null },
-      { id: 8, cols: 4, rows: 4, targets: 6, reds: 4, neutrals: 6, timeMs: 8000, hearts: 1, neutralPenaltyMs: 500, seed: null }
-    ];
-
-    const MAX_LEVEL = LEVELS.length;
+    const ECON = {
+      startBankMs: 8000,
+      capMs: 12000,
+      refundMs: n => Math.max(350, 650 - 15 * n),
+      waveClearBonusMs: n => Math.max(500, 2000 - 100 * n),
+      neutralPenaltyMs: 500
+    };
+    const RUN_HEARTS = 1;
     const SAVE_KEY = 'gridrush.v0';
-    const DEV_KEY = 'gridrush.v0.telemetry';
-    const DEV_MODE = new URLSearchParams(location.search).get('dev') === '1';
-    const DEFAULT_SAVE = { highestUnlocked: 1, settings: { sound: true }, schema: 1 };
-    const attemptCounter = Array(MAX_LEVEL + 1).fill(0);
-    const introducedLevels = new Set();
+    const DEV_KEY = 'gridrush.v1.telemetry';
+    const PARAMS = new URLSearchParams(location.search);
+    const DEV_MODE = PARAMS.get('dev') === '1';
+    const RAW_SEED = PARAMS.get('seed');
+    const PINNED_SEED = RAW_SEED !== null && Number.isFinite(Number(RAW_SEED))
+      ? Number(RAW_SEED) >>> 0
+      : null;
+    const DEFAULT_SAVE = { bestWave: 0, runsPlayed: 0, settings: { sound: true }, schema: 2 };
 
     const el = {
       app: document.querySelector('#app'), menuScreen: document.querySelector('#menuScreen'),
       gameScreen: document.querySelector('#gameScreen'), heroFace: document.querySelector('#heroFace'),
       playButton: document.querySelector('#playButton'), soundButton: document.querySelector('#soundButton'),
-      devButton: document.querySelector('#devButton'), levelStrip: document.querySelector('#levelStrip'),
-      levelLabel: document.querySelector('#levelLabel'), timerFill: document.querySelector('#timerFill'),
-      targetCount: document.querySelector('#targetCount'), heartCount: document.querySelector('#heartCount'),
-      pauseButton: document.querySelector('#pauseButton'), grid: document.querySelector('#grid'),
+      devButton: document.querySelector('#devButton'), bestStat: document.querySelector('#bestStat'),
+      runsStat: document.querySelector('#runsStat'), levelLabel: document.querySelector('#levelLabel'),
+      timerFill: document.querySelector('#timerFill'), timerTrack: document.querySelector('.timer-track'),
+      targetCount: document.querySelector('#targetCount'), pauseButton: document.querySelector('#pauseButton'),
+      grid: document.querySelector('#grid'), waveFlash: document.querySelector('#waveFlash'),
       overlay: document.querySelector('#overlay'), overlayIcon: document.querySelector('#overlayIcon'),
       overlayTitle: document.querySelector('#overlayTitle'), overlayText: document.querySelector('#overlayText'),
       overlayActions: document.querySelector('#overlayActions'), devPanel: document.querySelector('#devPanel'),
@@ -468,21 +499,49 @@
     let telemetry = DEV_MODE ? loadTelemetry() : [];
     let audioContext = null;
     let toastTimer = 0;
+    let waveTransitionTimer = 0;
+    let runCounter = 0;
+    let hasShownRunIntro = false;
 
     const state = {
-      phase: 'BOOT', levelId: 1, level: null, seed: 0, tiles: [], remainingTargets: 0,
-      hearts: 1, accumulatedMs: 0, penaltyMs: 0, remaining: 0, lastTick: 0,
-      rafId: null, playStartedAt: 0, firstTapAt: null, taps: [], wrongTaps: 0,
-      neutralTaps: 0, streak: 0, currentRecordId: null
+      phase: 'BOOT', wave: 1, config: null, runSeed: 0, waveSeed: 0, tiles: [],
+      remainingTargets: 0, runHearts: RUN_HEARTS, bankMs: ECON.startBankMs,
+      remaining: ECON.startBankMs, lastTick: 0, rafId: null, runElapsedMs: 0,
+      waveElapsedMs: 0, waveTaps: [], waveWrongTaps: 0, waveNeutralTaps: 0,
+      streak: 0, currentRecordId: null, runRecord: null, pauseAfterWave: false
     };
+
+    function waveConfig(n) {
+      const tiles = n <= 2 ? { cols: 3, rows: 3 }
+        : n <= 4 ? { cols: 3, rows: 4 }
+        : n <= 6 ? { cols: 4, rows: 4 }
+        : n <= 8 ? { cols: 4, rows: 5 }
+        : n <= 11 ? { cols: 5, rows: 5 }
+        : n <= 14 ? { cols: 5, rows: 6 }
+        : { cols: 6, rows: 6 };
+      const total = tiles.cols * tiles.rows;
+      const targets = Math.min(13, 3 + Math.floor(n * 0.5));
+      const reds = Math.min(total - targets - 2, 1 + Math.floor(n * 0.65));
+      return { n: n, cols: tiles.cols, rows: tiles.rows, targets: targets, reds: reds, neutrals: total - targets - reds };
+    }
 
     function loadSave() {
       try {
         const value = JSON.parse(localStorage.getItem(SAVE_KEY));
-        if (!value || value.schema !== 1 || !Number.isInteger(value.highestUnlocked)) throw new Error();
-        value.highestUnlocked = Math.max(1, Math.min(MAX_LEVEL, value.highestUnlocked));
-        value.settings = { sound: value.settings?.sound !== false };
-        return value;
+        if (value && value.schema === 2) {
+          return {
+            bestWave: Math.max(0, Number(value.bestWave) || 0),
+            runsPlayed: Math.max(0, Number(value.runsPlayed) || 0),
+            settings: { sound: value.settings?.sound !== false },
+            schema: 2
+          };
+        }
+        if (value && value.schema === 1) {
+          const migrated = { bestWave: 0, runsPlayed: 0, settings: { sound: value.settings?.sound !== false }, schema: 2 };
+          localStorage.setItem(SAVE_KEY, JSON.stringify(migrated));
+          return migrated;
+        }
+        throw new Error();
       } catch { return structuredClone(DEFAULT_SAVE); }
     }
 
@@ -525,7 +584,8 @@
       const palette = kind === 'red'
         ? ['#ff5571', '#dd3657']
         : [['#55e3c1', '#25bfa6'], ['#79a8ff', '#5576dc'], ['#bd83ff', '#895dde'], ['#ffaf66', '#e77b4e']][variant % 4];
-      const [base, shade] = palette;
+      const base = palette[0];
+      const shade = palette[1];
       const brows = kind === 'red'
         ? '<path d="M21 27l10 4M49 27l-10 4" stroke="#511529" stroke-width="4.5" stroke-linecap="round"/>'
         : '';
@@ -534,7 +594,7 @@
         : variant % 2 === 0
           ? '<path d="M24 45c5 9 17 9 22 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>'
           : '<path d="M25 46c7 6 13 6 20 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>';
-      return `<svg viewBox="0 0 70 70" aria-hidden="true"><defs><linearGradient id="g-${kind}-${variant}" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${base}"/><stop offset="1" stop-color="${shade}"/></linearGradient></defs><circle cx="35" cy="35" r="27" fill="url(#g-${kind}-${variant})"/><ellipse cx="26" cy="35" rx="3.4" ry="4.8" fill="${kind === 'red' ? '#511529' : '#163b46'}"/><ellipse cx="44" cy="35" rx="3.4" ry="4.8" fill="${kind === 'red' ? '#511529' : '#163b46'}"/>${brows}${mouth}<circle cx="23" cy="24" r="5" fill="#fff" opacity=".2"/></svg>`;
+      return '<svg viewBox="0 0 70 70" aria-hidden="true"><defs><linearGradient id="g-' + kind + '-' + variant + '" x1="0" y1="0" x2="1" y2="1"><stop stop-color="' + base + '"/><stop offset="1" stop-color="' + shade + '"/></linearGradient></defs><circle cx="35" cy="35" r="27" fill="url(#g-' + kind + '-' + variant + ')"/><ellipse cx="26" cy="35" rx="3.4" ry="4.8" fill="' + (kind === 'red' ? '#511529' : '#163b46') + '"/><ellipse cx="44" cy="35" rx="3.4" ry="4.8" fill="' + (kind === 'red' ? '#511529' : '#163b46') + '"/>' + brows + mouth + '<circle cx="23" cy="24" r="5" fill="#fff" opacity=".2"/></svg>';
     }
 
     function setScreen(name) {
@@ -544,81 +604,87 @@
 
     function showMenu() {
       stopLoop();
+      clearTimeout(waveTransitionTimer);
       state.phase = 'MENU';
       hideOverlay();
+      el.waveFlash.classList.remove('visible');
       setScreen('menu');
       renderMenu();
     }
 
     function renderMenu() {
-      el.playButton.textContent = `Play level ${save.highestUnlocked}`;
+      el.playButton.textContent = 'Start run';
       el.soundButton.textContent = save.settings.sound ? 'Sound on' : 'Sound off';
       el.devButton.hidden = !DEV_MODE;
-      el.levelStrip.replaceChildren();
-      for (const level of LEVELS) {
-        const button = document.createElement('button');
-        button.className = 'level-button';
-        button.textContent = level.id;
-        button.disabled = level.id > save.highestUnlocked;
-        button.setAttribute('aria-label', button.disabled ? `Level ${level.id}, locked` : `Play level ${level.id}`);
-        if (!button.disabled) button.classList.add('unlocked');
-        if (level.id === save.highestUnlocked) button.classList.add('current');
-        button.addEventListener('click', () => loadLevel(level.id, true));
-        el.levelStrip.append(button);
-      }
+      el.bestStat.textContent = 'Best: Wave ' + save.bestWave;
+      el.runsStat.textContent = 'Runs: ' + save.runsPlayed;
     }
 
-    function loadLevel(levelId, allowIntro = true) {
+    function startRun(showIntro = true) {
       unlockAudio();
+      stopLoop();
+      clearTimeout(waveTransitionTimer);
       setScreen('game');
       hideOverlay();
-      state.levelId = levelId;
-      state.level = LEVELS[levelId - 1];
-      resetAttempt();
-      const showIntro = allowIntro && !introducedLevels.has(levelId);
-      if (showIntro) {
-        introducedLevels.add(levelId);
-        showLevelIntro();
+      el.waveFlash.classList.remove('visible');
+      runCounter += 1;
+      state.phase = 'RUN_INTRO';
+      state.wave = 1;
+      state.runSeed = PINNED_SEED ?? (Date.now() % 2147483648);
+      state.bankMs = ECON.startBankMs;
+      state.remaining = ECON.startBankMs;
+      state.runHearts = RUN_HEARTS;
+      state.runElapsedMs = 0;
+      state.currentRecordId = null;
+      state.runRecord = {
+        id: String(Date.now()) + '-' + runCounter,
+        runSeed: state.runSeed,
+        outcome: null,
+        waveReached: 1,
+        durationMs: 0,
+        waves: [],
+        bankAtDeathMs: null,
+        runNumber: runCounter,
+        nextAction: null
+      };
+      buildWave(1);
+      if (showIntro && !hasShownRunIntro) {
+        hasShownRunIntro = true;
+        showRunIntro();
       } else {
         startPlaying();
       }
     }
 
-    function resetAttempt() {
-      stopLoop();
-      const level = state.level;
-      const count = attemptCounter[level.id]++;
-      state.seed = level.seed ?? level.id * 1e6 + count;
-      const rng = mulberry32(state.seed);
+    function buildWave(n) {
+      state.wave = n;
+      state.config = waveConfig(n);
+      state.waveSeed = (state.runSeed ^ Math.imul(n, 0x9E3779B9)) >>> 0;
+      const rng = mulberry32(state.waveSeed);
       const kinds = [
-        ...Array(level.targets).fill('target'),
-        ...Array(level.reds).fill('red'),
-        ...Array(level.neutrals).fill('neutral')
+        ...Array(state.config.targets).fill('target'),
+        ...Array(state.config.reds).fill('red'),
+        ...Array(state.config.neutrals).fill('neutral')
       ];
       shuffle(kinds, rng);
-      state.tiles = kinds.map((kind, idx) => ({ idx, kind, resolved: false, faceVariant: Math.floor(rng() * 4), lastTapAt: -Infinity }));
-      state.remainingTargets = level.targets;
-      state.hearts = level.hearts;
-      state.accumulatedMs = 0;
-      state.penaltyMs = 0;
-      state.remaining = level.timeMs;
-      state.firstTapAt = null;
-      state.taps = [];
-      state.wrongTaps = 0;
-      state.neutralTaps = 0;
+      state.tiles = kinds.map((kind, idx) => ({ idx: idx, kind: kind, resolved: false, faceVariant: Math.floor(rng() * 4), lastTapAt: -Infinity }));
+      state.remainingTargets = state.config.targets;
+      state.waveElapsedMs = 0;
+      state.waveTaps = [];
+      state.waveWrongTaps = 0;
+      state.waveNeutralTaps = 0;
       state.streak = 0;
-      state.currentRecordId = null;
       renderGrid();
-      updateHud(level.timeMs);
+      updateHud(state.bankMs);
     }
 
     function renderGrid() {
       el.grid.replaceChildren();
-      el.grid.style.gridTemplateColumns = `repeat(${state.level.cols}, 1fr)`;
+      el.grid.style.gridTemplateColumns = 'repeat(' + state.config.cols + ', 1fr)';
       el.grid.className = 'grid inert';
       for (const tile of state.tiles) {
         const button = document.createElement('button');
-        button.className = `tile ${tile.kind}`;
+        button.className = 'tile ' + tile.kind;
         button.dataset.idx = tile.idx;
         button.setAttribute('aria-label', tile.kind === 'target' ? 'Ringed target face' : tile.kind === 'red' ? 'Red infected face' : 'Plain bystander face');
         button.innerHTML = faceSvg(tile.kind, tile.faceVariant);
@@ -627,20 +693,25 @@
       }
     }
 
-    function showLevelIntro() {
-      state.phase = 'LEVEL_INTRO';
+    function showRunIntro() {
+      state.phase = 'RUN_INTRO';
       el.grid.classList.add('inert');
-      showOverlay({ icon: '◎', title: `Level ${state.levelId}`, text: `Tap ${state.level.targets} ringed faces`, actions: [] });
+      showOverlay({
+        icon: '◎',
+        title: 'Ready?',
+        text: 'Tap ringed faces · Reds end the run · Good taps add time',
+        actions: []
+      });
       let dismissed = false;
       const dismiss = () => {
-        if (dismissed || state.phase !== 'LEVEL_INTRO') return;
+        if (dismissed || state.phase !== 'RUN_INTRO') return;
         dismissed = true;
         el.overlay.removeEventListener('pointerdown', dismiss);
         clearTimeout(timer);
         hideOverlay();
         startPlaying();
       };
-      const timer = setTimeout(dismiss, 1000);
+      const timer = setTimeout(dismiss, 1400);
       el.overlay.addEventListener('pointerdown', dismiss, { once: true });
     }
 
@@ -648,38 +719,50 @@
       stopLoop();
       state.phase = 'PLAYING';
       state.lastTick = performance.now();
-      state.playStartedAt = state.lastTick;
       el.grid.classList.remove('inert', 'failed');
       state.rafId = requestAnimationFrame(tick);
     }
 
+    function drainBank(now) {
+      if (state.phase !== 'PLAYING') return state.bankMs;
+      const delta = Math.max(0, now - state.lastTick);
+      state.bankMs -= delta;
+      state.runElapsedMs += delta;
+      state.waveElapsedMs += delta;
+      state.lastTick = now;
+      return state.bankMs;
+    }
+
+    function getBank(now = performance.now()) {
+      return state.phase === 'PLAYING' ? state.bankMs - Math.max(0, now - state.lastTick) : state.bankMs;
+    }
+
     function tick(now) {
       if (state.phase !== 'PLAYING') return;
-      state.accumulatedMs += now - state.lastTick;
-      state.lastTick = now;
-      const remaining = getActiveRemaining(now, false);
-      updateHud(remaining);
-      if (remaining <= 0) {
-        finishAttempt('timeout');
+      const bank = drainBank(now);
+      updateHud(bank);
+      if (bank <= 0) {
+        runOver('timeout', now);
         return;
       }
       state.rafId = requestAnimationFrame(tick);
     }
 
-    function getActiveRemaining(now = performance.now(), includeSinceTick = true) {
-      const liveDelta = includeSinceTick && state.phase === 'PLAYING' ? now - state.lastTick : 0;
-      return state.level.timeMs - state.accumulatedMs - liveDelta - state.penaltyMs;
+    function addBank(amount) {
+      state.bankMs = Math.min(ECON.capMs, state.bankMs + amount);
+      updateHud(state.bankMs);
+      el.timerFill.classList.add('refill');
+      setTimeout(() => el.timerFill.classList.remove('refill'), 180);
     }
 
-    function updateHud(remaining) {
-      state.remaining = Math.max(0, remaining);
-      const ratio = Math.max(0, Math.min(1, state.remaining / state.level.timeMs));
-      el.timerFill.style.transform = `scaleX(${ratio})`;
-      el.timerFill.classList.toggle('amber', ratio <= .4 && ratio > .15);
-      el.timerFill.classList.toggle('danger', ratio <= .15);
-      el.levelLabel.textContent = `L${state.levelId}`;
-      el.targetCount.textContent = `${state.remainingTargets} ${state.remainingTargets === 1 ? 'face' : 'faces'} left`;
-      el.heartCount.textContent = '♥'.repeat(Math.max(0, state.hearts));
+    function updateHud(bank) {
+      state.remaining = Math.max(0, bank);
+      const ratio = Math.max(0, Math.min(1, state.remaining / ECON.capMs));
+      el.timerFill.style.transform = 'scaleX(' + ratio + ')';
+      el.timerFill.classList.toggle('amber', state.remaining <= 4000 && state.remaining > 2000);
+      el.timerFill.classList.toggle('danger', state.remaining <= 2000);
+      el.levelLabel.textContent = 'W' + state.wave;
+      el.targetCount.textContent = state.remainingTargets + ' ' + (state.remainingTargets === 1 ? 'face' : 'faces') + ' left';
     }
 
     function onTilePress(event) {
@@ -689,165 +772,169 @@
       const now = performance.now();
       if (tile.resolved || now - tile.lastTapAt < 300) return;
       tile.lastTapAt = now;
-      const activeRemaining = getActiveRemaining(now);
-      if (activeRemaining <= 0) {
-        finishAttempt('timeout');
+      const liveBank = drainBank(now);
+      if (liveBank <= 0) {
+        runOver('timeout', now);
         return;
       }
 
-      if (state.firstTapAt === null) state.firstTapAt = now;
-      state.taps.push({ kind: tile.kind, tMs: Math.round(now - state.playStartedAt) });
+      state.waveTaps.push({ kind: tile.kind, tMs: Math.round(state.waveElapsedMs) });
 
       if (tile.kind === 'target') {
         tile.resolved = true;
         state.remainingTargets -= 1;
         state.streak += 1;
         node.classList.add('resolved');
+        const refund = ECON.refundMs(state.wave);
+        addBank(refund);
+        showTimeDelta(node, refund, true);
         tone(480 + state.streak * 70, .045, 'sine', .05);
-        updateHud(activeRemaining);
-        if (state.remainingTargets === 0) finishAttempt('win');
+        if (state.remainingTargets === 0) clearWave(now);
         return;
       }
 
       state.streak = 0;
-      state.wrongTaps += 1;
+      state.waveWrongTaps += 1;
       if (tile.kind === 'neutral') {
-        state.neutralTaps += 1;
-        state.penaltyMs += state.level.neutralPenaltyMs;
+        state.waveNeutralTaps += 1;
+        state.bankMs -= ECON.neutralPenaltyMs;
         node.classList.remove('wobble');
         void node.offsetWidth;
         node.classList.add('wobble');
-        showPenalty(node, state.level.neutralPenaltyMs);
+        showTimeDelta(node, ECON.neutralPenaltyMs, false);
         tone(190, .08, 'triangle', .04);
-        const afterPenalty = getActiveRemaining(performance.now());
-        updateHud(afterPenalty);
-        if (afterPenalty <= 0) finishAttempt('timeout');
+        updateHud(state.bankMs);
+        if (state.bankMs <= 0) runOver('timeout', performance.now());
         return;
       }
 
-      state.hearts -= 1;
+      state.runHearts -= 1;
       node.classList.add('red-hit');
       el.grid.classList.add('shake');
       tone(92, .14, 'sawtooth', .055);
-      updateHud(activeRemaining);
-      if (state.hearts <= 0) finishAttempt('red_tap');
+      if (state.runHearts <= 0) runOver('red_tap', performance.now());
     }
 
-    function showPenalty(node, amount) {
+    function clearWave(now) {
+      if (state.phase !== 'PLAYING') return;
+      stopLoop();
+      state.phase = 'WAVE_CLEAR';
+      el.grid.classList.add('inert');
+      const bonus = ECON.waveClearBonusMs(state.wave);
+      addBank(bonus);
+      showTimeDelta(el.timerTrack, bonus, true);
+      state.runRecord.waves.push({
+        n: state.wave,
+        clearMs: Math.round(state.waveElapsedMs),
+        taps: state.waveTaps,
+        wrongTaps: state.waveWrongTaps,
+        neutralTaps: state.waveNeutralTaps,
+        bankAtClearMs: Math.round(state.bankMs)
+      });
+      const nextWave = state.wave + 1;
+      el.waveFlash.textContent = 'Wave ' + nextWave;
+      el.waveFlash.classList.add('visible');
+      state.pauseAfterWave = document.hidden;
+      waveTransitionTimer = setTimeout(() => {
+        buildWave(nextWave);
+        el.waveFlash.classList.remove('visible');
+        if (state.pauseAfterWave || document.hidden) {
+          state.pauseAfterWave = false;
+          showPausedOverlay();
+        } else {
+          startPlaying();
+        }
+      }, 500);
+    }
+
+    function showTimeDelta(node, amount, positive) {
       const rect = node.getBoundingClientRect();
       const label = document.createElement('span');
-      label.className = 'penalty';
-      label.textContent = `−${(amount / 1000).toFixed(1)}s`;
-      label.style.left = `${rect.left + rect.width / 2 - 20}px`;
-      label.style.top = `${rect.top + rect.height / 2}px`;
+      label.className = 'time-delta ' + (positive ? 'positive' : 'negative');
+      label.textContent = (positive ? '+' : '−') + (amount / 1000).toFixed(1) + 's';
+      label.style.left = Math.max(12, rect.left + rect.width / 2 - 24) + 'px';
+      label.style.top = Math.max(18, rect.top + rect.height / 2) + 'px';
       document.body.append(label);
-      setTimeout(() => label.remove(), 600);
+      setTimeout(() => label.remove(), 650);
     }
 
-    function finishAttempt(outcome) {
+    function runOver(outcome, now) {
       if (state.phase !== 'PLAYING') return;
-      const finishedAt = performance.now();
+      drainBank(now);
       stopLoop();
-      state.phase = outcome === 'win' ? 'WIN' : 'FAIL';
-      el.grid.classList.add('inert');
-      if (outcome !== 'win') el.grid.classList.add('failed');
-
-      recordAttempt(outcome, finishedAt);
-      if (outcome === 'win') {
-        save.highestUnlocked = Math.min(Math.max(state.levelId + 1, save.highestUnlocked), MAX_LEVEL);
-        persistSave();
-        playWinSound();
-        if (state.levelId === MAX_LEVEL) {
-          setTimeout(showComplete, 180);
-        } else {
-          setTimeout(showWin, 180);
-        }
-      } else {
-        setTimeout(() => showFail(outcome), 120);
-      }
+      state.phase = 'RUN_OVER';
+      el.grid.classList.add('inert', 'failed');
+      const previousBest = save.bestWave;
+      save.bestWave = Math.max(save.bestWave, state.wave);
+      save.runsPlayed += 1;
+      persistSave();
+      state.runRecord.outcome = outcome;
+      state.runRecord.waveReached = state.wave;
+      state.runRecord.durationMs = Math.round(state.runElapsedMs);
+      state.runRecord.bankAtDeathMs = Math.round(state.bankMs);
+      state.runRecord.isNewBest = state.wave > previousBest;
+      recordRun();
+      setTimeout(() => showRunOver(outcome, state.wave > previousBest), 120);
     }
 
-    function recordAttempt(outcome, finishedAt) {
+    function recordRun() {
       if (!DEV_MODE) return;
-      const record = {
-        id: `${Date.now()}-${state.levelId}-${attemptCounter[state.levelId]}`,
-        levelId: state.levelId,
-        seed: state.seed,
-        outcome,
-        durationMs: Math.round(finishedAt - state.playStartedAt),
-        timeToFirstTapMs: state.firstTapAt === null ? null : Math.round(state.firstTapAt - state.playStartedAt),
-        taps: state.taps,
-        wrongTaps: state.wrongTaps,
-        neutralTaps: state.neutralTaps,
-        attemptNumberForLevel: attemptCounter[state.levelId],
-        nextAction: null
-      };
-      telemetry.push(record);
-      state.currentRecordId = record.id;
+      telemetry.push(state.runRecord);
+      state.currentRecordId = state.runRecord.id;
       persistTelemetry();
     }
 
-    function resolveNextAction(action) {
+    function resolveNextAction(actionName) {
       if (!DEV_MODE || !state.currentRecordId) return;
       const record = telemetry.find(item => item.id === state.currentRecordId);
-      if (record) record.nextAction = action;
+      if (record) record.nextAction = actionName;
       state.currentRecordId = null;
       persistTelemetry();
     }
 
-    function showWin() {
-      const actions = DEV_MODE
-        ? [action('Next', 'primary', () => { resolveNextAction('next'); loadLevel(state.levelId + 1, true); }), action('Copy JSON', 'secondary', copyTelemetry), action('Menu', 'secondary', () => { resolveNextAction('quit'); showMenu(); })]
-        : [];
-      showOverlay({ icon: '<span class="stars">★ ★ ★</span>', title: 'Clean sweep!', text: 'Every ringed face rescued.', actions });
-      if (!DEV_MODE) setTimeout(() => { resolveNextAction('next'); loadLevel(state.levelId + 1, true); }, 1200);
-    }
-
-    function showFail(outcome) {
-      const title = outcome === 'timeout' ? 'Time’s up!' : 'You tapped a Red!';
+    function showRunOver(outcome, isNewBest) {
+      const title = outcome === 'timeout' ? 'Out of time!' : 'You tapped a Red!';
+      const bestLine = isNewBest ? 'New best!' : 'Best: Wave ' + save.bestWave;
       showOverlay({
-        icon: outcome === 'timeout' ? '⌛' : '⚠', title,
-        text: 'Reset your focus and go again.',
+        icon: isNewBest ? '<span class="stars">★ NEW ★</span>' : outcome === 'timeout' ? '⌛' : '⚠',
+        title: title,
+        text: 'Wave ' + state.wave + ' reached · ' + bestLine,
         actions: [
-          action('Retry', 'primary', retryLevel),
+          action('Run again', 'primary', retryRun),
           ...(DEV_MODE ? [action('Copy JSON', 'secondary', copyTelemetry)] : []),
           action('Menu', 'secondary', () => { resolveNextAction('quit'); showMenu(); })
         ]
       });
     }
 
-    function retryLevel() {
+    function retryRun() {
       resolveNextAction('retry');
       hideOverlay();
       el.grid.style.opacity = '0';
       setTimeout(() => {
-        resetAttempt();
         el.grid.style.opacity = '';
-        startPlaying();
+        startRun(false);
       }, 200);
-    }
-
-    function showComplete() {
-      showOverlay({
-        icon: '🏆', title: 'MVP complete', text: 'Eight levels cleared. The grid never stood a chance.',
-        actions: [
-          action('Replay level 8', 'primary', () => { resolveNextAction('retry'); loadLevel(MAX_LEVEL, false); }),
-          ...(DEV_MODE ? [action('Copy JSON', 'secondary', copyTelemetry)] : []),
-          action('Level menu', 'secondary', () => { resolveNextAction('quit'); showMenu(); })
-        ]
-      });
     }
 
     function pauseGame() {
       if (state.phase !== 'PLAYING') return;
-      const now = performance.now();
-      state.accumulatedMs += now - state.lastTick;
+      drainBank(performance.now());
       stopLoop();
+      showPausedOverlay();
+    }
+
+    function showPausedOverlay() {
       state.phase = 'PAUSED';
       el.grid.classList.add('inert');
       showOverlay({
-        icon: 'Ⅱ', title: 'Paused', text: 'The clock is frozen.',
-        actions: [action('Resume', 'primary', resumeGame), action('Quit to menu', 'secondary', () => { resolveNextAction('quit'); showMenu(); })]
+        icon: 'Ⅱ',
+        title: 'Paused',
+        text: 'The time bank is frozen.',
+        actions: [
+          action('Resume', 'primary', resumeGame),
+          action('Quit to menu', 'secondary', showMenu)
+        ]
       });
     }
 
@@ -905,12 +992,6 @@
       oscillator.stop(start + duration);
     }
 
-    function playWinSound() {
-      tone(523, .12, 'sine', .035, 0);
-      tone(659, .12, 'sine', .035, .09);
-      tone(784, .2, 'sine', .04, .18);
-    }
-
     async function copyTelemetry() {
       const value = JSON.stringify(telemetry, null, 2);
       try { await navigator.clipboard.writeText(value); showToast('JSON copied'); }
@@ -931,7 +1012,7 @@
 
     function boot() {
       el.heroFace.innerHTML = faceSvg('neutral', 3);
-      el.playButton.addEventListener('click', () => loadLevel(save.highestUnlocked, true));
+      el.playButton.addEventListener('click', () => startRun(true));
       el.soundButton.addEventListener('click', () => {
         save.settings.sound = !save.settings.sound;
         persistSave();
@@ -945,6 +1026,7 @@
       el.closeDevButton.addEventListener('click', () => el.devPanel.classList.remove('visible'));
       document.addEventListener('visibilitychange', () => {
         if (document.hidden && state.phase === 'PLAYING') pauseGame();
+        if (document.hidden && state.phase === 'WAVE_CLEAR') state.pauseAfterWave = true;
       });
       showMenu();
     }

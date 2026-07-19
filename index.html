@@ -442,7 +442,9 @@
       <div class="play-area"><div class="grid inert" id="grid" aria-label="Face grid"></div></div>
     </section>
 
-    <div class="wave-flash" id="waveFlash" aria-live="polite"></div>\n\n    <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="overlayTitle">
+    <div class="wave-flash" id="waveFlash" aria-live="polite"></div>
+
+    <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="overlayTitle">
       <div class="card">
         <div class="result-icon" id="overlayIcon" aria-hidden="true"></div>
         <h2 id="overlayTitle"></h2>
@@ -597,7 +599,7 @@
         ? '<path d="M21 27l10 4M49 27l-10 4" stroke="#511529" stroke-width="4.5" stroke-linecap="round"/>'
         : '';
       const mouth = kind === 'red'
-        ? '<path d="M25 62 Q35 55 45 62" fill="none" stroke="#511529" stroke-width="4" stroke-linecap="round"/>'
+        ? '<path d="M26 55 Q35 48 44 55" fill="none" stroke="#511529" stroke-width="4" stroke-linecap="round"/>'
         : variant % 2 === 0
           ? '<path d="M24 45c5 9 17 9 22 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>'
           : '<path d="M25 46c7 6 13 6 20 0" fill="none" stroke="#163b46" stroke-width="4" stroke-linecap="round"/>';

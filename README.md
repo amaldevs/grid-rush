@@ -4,6 +4,8 @@ Grid Rush is a mobile reflex arcade game. Tap every ringed face, avoid infected 
 
 Every run starts at wave 1. Correct taps refund time, wave clears add a larger bonus, and the generated grids become denser as the run progresses. One red tap ends the run.
 
+The time bank is rendered directly on every face as a synchronized shade descending from top to bottom. Targets, neutrals, and Reds all show the same countdown. Correct taps visibly lift the shade across the entire grid.
+
 The game is implemented as one self contained `index.html` with no dependencies, build step, service worker, or network access.
 
 ## Play
@@ -22,17 +24,11 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
-Append `?dev=1` for local run telemetry:
+Append `?dev=1` for local run telemetry, or `?seed=1234` to reproduce an entire generated run.
 
-```text
-http://localhost:8080/?dev=1
-```
+## Product contracts
 
-Append `?seed=1234` to reproduce an entire generated run.
-
-## Product contract
-
-The current behaviour follows [the arcade run specification](docs/grid-rush-arcade-run-spec.md). The earlier [v0.2 build specification](docs/grid-rush-mvp-build-spec.md) is retained as design history.
+The current behaviour follows [the on tile timer specification](docs/grid-rush-on-tile-timer-spec.md), layered over [the arcade run specification](docs/grid-rush-arcade-run-spec.md). The earlier [v0.2 build specification](docs/grid-rush-mvp-build-spec.md) is retained as design history.
 
 ## Validation
 
@@ -42,4 +38,4 @@ Run:
 ./scripts/check.sh
 ```
 
-The check validates the inline JavaScript, dependency free single file constraint, removal of the fixed level campaign, and generated wave invariants through wave 50.
+The check validates the inline JavaScript, dependency free single file constraint, synchronized tile countdown, current economy constants, and generated wave invariants through wave 50.
